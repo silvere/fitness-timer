@@ -13,6 +13,7 @@ const state = {
   wakeLock: null,
   startTime: null,
   audioCtx: null,
+  voiceEnabled: true,
 };
 
 // ──────────────────────────────────────────────
@@ -63,6 +64,53 @@ function beepComplete() {
   beep(784, 0.15, 0.5, 0.36);
   beep(1047, 0.3, 0.5, 0.54);
 }
+
+// ──────────────────────────────────────────────
+//  Voice (Web Speech API)
+// ──────────────────────────────────────────────
+let voiceReady = false;
+let zhVoice = null;
+
+function initVoice() {
+  if (!window.speechSynthesis) return;
+  const load = () => {
+    const voices = window.speechSynthesis.getVoices();
+    // Prefer: zh-CN > zh-TW > any zh
+    zhVoice = voices.find(v => v.lang === 'zh-CN')
+           || voices.find(v => v.lang === 'zh-TW')
+           || voices.find(v => v.lang.startsWith('zh'))
+           || null;
+    voiceReady = true;
+  };
+  if (window.speechSynthesis.getVoices().length > 0) {
+    load();
+  } else {
+    window.speechSynthesis.addEventListener('voiceschanged', load, { once: true });
+  }
+}
+
+function speak(text, interrupt = true) {
+  if (!state.voiceEnabled || !window.speechSynthesis) return;
+  if (interrupt) window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = 'zh-CN';
+  utter.rate = 1.05;
+  utter.pitch = 1.0;
+  utter.volume = 1.0;
+  if (zhVoice) utter.voice = zhVoice;
+  window.speechSynthesis.speak(utter);
+}
+
+function toggleVoice() {
+  state.voiceEnabled = !state.voiceEnabled;
+  const btn = document.getElementById('btn-voice-toggle');
+  btn.textContent = state.voiceEnabled ? '🔊' : '🔇';
+  btn.title = state.voiceEnabled ? '语音开启' : '语音关闭';
+  showToast(state.voiceEnabled ? '语音已开启' : '语音已关闭');
+  if (state.voiceEnabled) speak('语音已开启');
+}
+
+initVoice();
 
 // ──────────────────────────────────────────────
 //  Wake Lock
@@ -422,13 +470,29 @@ function startRest(seconds) {
   renderRest();
   showView('view-rest');
 
+  // Voice: announce rest start
+  const plan = state.orderedPlan;
+  const nextEx = plan[state.currentExIdx];
+  if (nextEx) {
+    const isNewExercise = nextEx.completedSets === 0;
+    if (isNewExercise) {
+      speak(`下一个动作：${nextEx.name}，共${nextEx.sets}组。休息${seconds}秒。`);
+    } else {
+      speak(`休息${seconds}秒，准备第${nextEx.completedSets + 1}组。`);
+    }
+  }
+
   clearInterval(state.restTimer);
   state.restTimer = setInterval(() => {
     state.restSeconds--;
     renderRest();
 
-    if (state.restSeconds === 5) {
+    // Voice countdown cues
+    if (state.restSeconds === 30) speak('还有三十秒', false);
+    else if (state.restSeconds === 10) speak('还有十秒，准备！', false);
+    else if (state.restSeconds === 5) {
       beepWarning();
+      speak('五，四，三，二，一', false);
     }
 
     if (state.restSeconds <= 0) {
@@ -472,9 +536,13 @@ function renderRest() {
 
 function advanceAfterRest() {
   const plan = state.orderedPlan;
+  const ex = plan[state.currentExIdx];
   showView('view-active');
   renderActive();
   beep(440, 0.1, 0.3);
+  if (ex) {
+    speak(`休息结束！${ex.name}，第${ex.completedSets + 1}组，开始！`);
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -492,16 +560,13 @@ function completeSet() {
     // Move to next exercise
     state.currentExIdx++;
     if (state.currentExIdx >= plan.length) {
-      // All done!
       finishWorkout();
       return;
     }
-    // Show rest before next exercise
+    speak(`${ex.name}完成！`);
     startRest(ex.rest);
-    document.getElementById('rest-next-label').innerHTML =
-      `下一个动作：<strong>${plan[state.currentExIdx].name}</strong>`;
   } else {
-    // More sets remaining in this exercise
+    speak(`第${ex.completedSets}组完成，加油！`);
     startRest(ex.rest);
   }
 }
@@ -531,6 +596,7 @@ function finishWorkout() {
     exercises: state.orderedPlan.map(e => e.name),
   });
 
+  speak(`训练完成！共完成${totalSets}组，用时${mins}分钟。你太棒了，好好休息！`);
   showView('view-done');
 }
 
@@ -563,7 +629,14 @@ document.getElementById('btn-begin-workout').addEventListener('click', () => {
   renderActive();
   showView('view-active');
   beep(440, 0.15, 0.4);
+
+  const firstEx = state.orderedPlan[0];
+  if (firstEx) {
+    speak(`训练开始！第一个动作：${firstEx.name}，共${firstEx.sets}组。准备好后点完成这组。`);
+  }
 });
+
+document.getElementById('btn-voice-toggle').addEventListener('click', toggleVoice);
 
 document.getElementById('btn-active-back').addEventListener('click', () => {
   if (!confirm('放弃当前训练？')) return;
