@@ -2,14 +2,17 @@
 //  State
 // ──────────────────────────────────────────────
 const state = {
-  bodyPart: null,         // 'upper' | 'lower' | 'full'
-  selectedExIds: [],      // [exerciseId, ...]
-  workoutPlan: [],        // [{...exercise, sets, rest, completedSets}]
+  bodyPart: null,
+  selectedExIds: [],
+  workoutPlan: [],
   currentExIdx: 0,
   currentSet: 1,
   restSeconds: 0,
   restTotal: 0,
   restTimer: null,
+  setTimer: null,       // countdown timer during active set
+  setSeconds: 0,        // remaining seconds in current set
+  setTotal: 0,
   wakeLock: null,
   startTime: null,
   audioCtx: null,
@@ -269,8 +272,10 @@ function renderSetup() {
 
     // Find stored config or use defaults
     const stored = state.workoutPlan.find(w => w.id === ex.id);
-    const sets = stored?.sets || ex.defaultSets;
-    const rest = stored?.rest || ex.defaultRest;
+    const sets     = stored?.sets     ?? ex.defaultSets;
+    const rest     = stored?.rest     ?? ex.defaultRest;
+    const duration = stored?.duration ?? ex.defaultDuration;
+    const durLabel = duration > 0 ? `${duration}s` : '手动';
 
     item.innerHTML = `
       <div class="exercise-item-header">
@@ -292,6 +297,14 @@ function renderSetup() {
             <button class="step-btn" data-field="rest" data-dir="-15">−</button>
             <span class="step-val" data-field-val="rest">${rest}s</span>
             <button class="step-btn" data-field="rest" data-dir="15">+</button>
+          </div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">每组时长</span>
+          <div class="config-stepper">
+            <button class="step-btn" data-field="duration" data-dir="-5">−</button>
+            <span class="step-val" data-field-val="duration">${durLabel}</span>
+            <button class="step-btn" data-field="duration" data-dir="5">+</button>
           </div>
         </div>
       </div>`;
@@ -341,22 +354,30 @@ function stepConfig(exId, field, delta) {
   let entry = state.workoutPlan.find(w => w.id === exId);
   const exDef = Object.values(EXERCISES).flat().find(e => e.id === exId);
   if (!entry) {
-    entry = { ...exDef, sets: exDef.defaultSets, rest: exDef.defaultRest, completedSets: 0 };
+    entry = { ...exDef, sets: exDef.defaultSets, rest: exDef.defaultRest,
+              duration: exDef.defaultDuration, completedSets: 0 };
     state.workoutPlan.push(entry);
   }
   if (field === 'sets') {
-    entry.sets = Math.max(1, Math.min(10, (entry.sets || exDef.defaultSets) + delta));
+    entry.sets = Math.max(1, Math.min(10, (entry.sets ?? exDef.defaultSets) + delta));
   } else if (field === 'rest') {
-    entry.rest = Math.max(15, Math.min(600, (entry.rest || exDef.defaultRest) + delta));
+    entry.rest = Math.max(15, Math.min(600, (entry.rest ?? exDef.defaultRest) + delta));
+  } else if (field === 'duration') {
+    // 0 = manual; cycle: 0→5→10→...→300→0
+    const cur = entry.duration ?? exDef.defaultDuration;
+    const next = cur + delta;
+    entry.duration = next <= 0 ? 0 : Math.min(300, next);
   }
 }
 
 function updateStepDisplay(item, exId, exDef) {
   const entry = state.workoutPlan.find(w => w.id === exId) || exDef;
-  const sets = entry.sets || exDef.defaultSets;
-  const rest = entry.rest || exDef.defaultRest;
+  const sets     = entry.sets     ?? exDef.defaultSets;
+  const rest     = entry.rest     ?? exDef.defaultRest;
+  const duration = entry.duration ?? exDef.defaultDuration;
   item.querySelector('[data-field-val="sets"]').textContent = sets;
   item.querySelector('[data-field-val="rest"]').textContent = rest + 's';
+  item.querySelector('[data-field-val="duration"]').textContent = duration > 0 ? duration + 's' : '手动';
 }
 
 function applyTemplate(tpl) {
@@ -428,6 +449,11 @@ function renderActive() {
   document.getElementById('active-set-info').innerHTML =
     `第 <span>${ex.completedSets + 1}</span> 组 / 共 ${ex.sets} 组`;
 
+  // Set timer indicator
+  const hasDuration = (ex.duration ?? ex.defaultDuration ?? 0) > 0;
+  document.getElementById('set-timer-display').style.display = hasDuration ? 'block' : 'none';
+  document.getElementById('btn-complete-set').textContent = hasDuration ? '⏭ 提前完成' : '✓ 完成这组';
+
   // Upcoming
   const upcoming = plan.slice(exIdx + 1, exIdx + 4);
   const upList = document.getElementById('active-upcoming-list');
@@ -459,6 +485,58 @@ function startElapsedTick() {
     const el = document.getElementById('active-timer-elapsed');
     if (el) el.textContent = getElapsedStr();
   }, 1000);
+}
+
+// ──────────────────────────────────────────────
+//  SET TIMER (auto-advance after set duration)
+// ──────────────────────────────────────────────
+function startSetTimer(ex) {
+  clearInterval(state.setTimer);
+  const dur = ex.duration ?? ex.defaultDuration ?? 0;
+  if (dur <= 0) return; // manual mode
+
+  state.setSeconds = dur;
+  state.setTotal = dur;
+  updateSetTimerDisplay();
+
+  speak(`${ex.name}，${dur}秒，开始！`);
+
+  state.setTimer = setInterval(() => {
+    state.setSeconds--;
+    updateSetTimerDisplay();
+
+    if (state.setSeconds === 10) speak('还有十秒', false);
+    else if (state.setSeconds === 3) {
+      beep(660, 0.08, 0.4);
+      speak('三，二，一', false);
+    }
+
+    if (state.setSeconds <= 0) {
+      clearInterval(state.setTimer);
+      state.setTimer = null;
+      beep(880, 0.15, 0.5);
+      completeSet();
+    }
+  }, 1000);
+}
+
+function updateSetTimerDisplay() {
+  const el = document.getElementById('set-timer-seconds');
+  if (el) el.textContent = state.setSeconds;
+  // Progress ring for set timer
+  const ring = document.getElementById('set-ring-progress');
+  if (ring && state.setTotal > 0) {
+    const r = 36;
+    const circ = 2 * Math.PI * r;
+    const pct = state.setSeconds / state.setTotal;
+    ring.style.strokeDasharray = circ;
+    ring.style.strokeDashoffset = circ * (1 - pct);
+  }
+}
+
+function stopSetTimer() {
+  clearInterval(state.setTimer);
+  state.setTimer = null;
 }
 
 // ──────────────────────────────────────────────
@@ -541,7 +619,11 @@ function advanceAfterRest() {
   renderActive();
   beep(440, 0.1, 0.3);
   if (ex) {
-    speak(`休息结束！${ex.name}，第${ex.completedSets + 1}组，开始！`);
+    const hasDuration = (ex.duration ?? ex.defaultDuration ?? 0) > 0;
+    if (!hasDuration) {
+      speak(`休息结束！${ex.name}，第${ex.completedSets + 1}组，开始！`);
+    }
+    startSetTimer(ex); // starts timer (and announces if timed); no-op if manual
   }
 }
 
@@ -549,6 +631,7 @@ function advanceAfterRest() {
 //  Set completion logic
 // ──────────────────────────────────────────────
 function completeSet() {
+  stopSetTimer();
   beep(660, 0.1, 0.5);
   const plan = state.orderedPlan;
   const ex = plan[state.currentExIdx];
@@ -632,7 +715,12 @@ document.getElementById('btn-begin-workout').addEventListener('click', () => {
 
   const firstEx = state.orderedPlan[0];
   if (firstEx) {
-    speak(`训练开始！第一个动作：${firstEx.name}，共${firstEx.sets}组。准备好后点完成这组。`);
+    const hasDuration = (firstEx.duration ?? firstEx.defaultDuration ?? 0) > 0;
+    if (hasDuration) {
+      setTimeout(() => startSetTimer(firstEx), 1500);
+    } else {
+      speak(`训练开始！第一个动作：${firstEx.name}，共${firstEx.sets}组。准备好后点完成这组。`);
+    }
   }
 });
 

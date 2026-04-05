@@ -72,6 +72,21 @@
     <div class="ex-label" id="active-ex-label"></div>
     <div class="ex-title" id="active-ex-title"></div>
     <div class="set-info" id="active-set-info"></div>
+
+    <!-- Set countdown ring (shown only when duration > 0) -->
+    <div id="set-timer-display" style="display:none; margin-top:16px; display:none;">
+      <div style="position:relative;width:90px;height:90px;margin:0 auto;">
+        <svg width="90" height="90" viewBox="0 0 90 90" style="transform:rotate(-90deg)">
+          <circle cx="45" cy="45" r="36" fill="none" stroke="var(--surface2)" stroke-width="6"/>
+          <circle id="set-ring-progress" cx="45" cy="45" r="36" fill="none"
+                  stroke="var(--accent)" stroke-width="6" stroke-linecap="round"/>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <span id="set-timer-seconds" style="font-size:24px;font-weight:700;color:var(--accent);">0</span>
+          <span style="font-size:10px;color:var(--text-dim);">秒</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="section-label">接下来</div>
