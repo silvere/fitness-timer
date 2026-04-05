@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>健身计时</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── HOME ── -->
+<div id="view-home" class="view">
+  <div class="header">
+    <h1>💪 健身计时</h1>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-chip">
+      <div class="val" id="home-week-count">0</div>
+      <div class="lbl">本周训练</div>
+    </div>
+    <div class="stat-chip">
+      <div class="val" id="home-total-count">0</div>
+      <div class="lbl">累计次数</div>
+    </div>
+  </div>
+
+  <div class="section-label">选择训练部位</div>
+  <div class="bodypart-grid" id="bodypart-grid"></div>
+
+  <div class="section-label">最近记录</div>
+  <div id="home-history"></div>
+
+  <div class="btn-stack" style="margin-top: 24px;">
+    <button class="btn btn-primary" id="btn-start-setup" disabled>开始配置训练</button>
+  </div>
+</div>
+
+<!-- ── SETUP ── -->
+<div id="view-setup" class="view">
+  <div class="header">
+    <button class="back-btn" id="btn-setup-back">←</button>
+    <h1 id="setup-title">配置训练</h1>
+  </div>
+
+  <div class="section-label">快速模板</div>
+  <div class="templates-row" id="templates-row"></div>
+
+  <div class="section-label">选择动作（可多选）</div>
+  <div class="exercise-list" id="exercise-list"></div>
+
+  <div class="btn-stack">
+    <button class="btn btn-primary" id="btn-begin-workout" disabled>开始训练</button>
+  </div>
+</div>
+
+<!-- ── ACTIVE ── -->
+<div id="view-active" class="view">
+  <div class="active-header">
+    <span class="part-badge" id="active-part-badge"></span>
+    <span class="timer-small" id="active-timer-elapsed">00:00</span>
+    <button class="back-btn" id="btn-active-back" style="background:none;font-size:14px;width:auto;border-radius:8px;padding:4px 8px;color:var(--text-dim);">结束</button>
+  </div>
+
+  <div class="progress-dots" id="active-progress-dots"></div>
+
+  <div class="exercise-card">
+    <div class="ex-label" id="active-ex-label"></div>
+    <div class="ex-title" id="active-ex-title"></div>
+    <div class="set-info" id="active-set-info"></div>
+  </div>
+
+  <div class="section-label">接下来</div>
+  <div class="upcoming-list" id="active-upcoming-list"></div>
+
+  <div class="btn-stack">
+    <button class="btn btn-primary" id="btn-complete-set">✓ 完成这组</button>
+  </div>
+</div>
+
+<!-- ── REST ── -->
+<div id="view-rest" class="view">
+  <div class="rest-label">休息中</div>
+  <div class="rest-next" id="rest-next-label"></div>
+
+  <div class="countdown-ring">
+    <svg width="220" height="220" viewBox="0 0 220 220">
+      <circle id="ring-bg" class="ring-bg" cx="110" cy="110" r="96"/>
+      <circle id="ring-progress" class="ring-progress" cx="110" cy="110" r="96"/>
+    </svg>
+    <div class="countdown-number">
+      <div class="seconds" id="rest-seconds">60</div>
+      <div class="unit">秒</div>
+    </div>
+  </div>
+
+  <div class="rest-btn-row">
+    <button class="btn btn-ghost" id="btn-add-30">+30s</button>
+    <button class="btn btn-primary" id="btn-skip-rest">跳过休息 →</button>
+  </div>
+</div>
+
+<!-- ── DONE ── -->
+<div id="view-done" class="view">
+  <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;">
+    <div class="done-emoji">🎉</div>
+    <div class="done-title">训练完成！</div>
+    <div class="done-sub">你真棒，保持这个节奏！</div>
+
+    <div class="done-stats">
+      <div class="done-stat">
+        <div class="val" id="done-sets">0</div>
+        <div class="lbl">完成组数</div>
+      </div>
+      <div class="done-stat">
+        <div class="val" id="done-exercises">0</div>
+        <div class="lbl">动作数</div>
+      </div>
+      <div class="done-stat">
+        <div class="val" id="done-mins">0</div>
+        <div class="lbl">分钟</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="done-btn-row">
+    <button class="btn btn-primary" id="btn-done-again">再练一次</button>
+    <button class="btn btn-secondary" id="btn-done-home">返回首页</button>
+  </div>
+</div>
+
+<!-- ── Toast ── -->
+<div class="toast" id="toast"></div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
