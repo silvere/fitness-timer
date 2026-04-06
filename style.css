@@ -35,7 +35,7 @@ body {
   display: none;
   flex-direction: column;
   flex: 1;
-  padding: 20px 16px 32px;
+  padding: max(20px, calc(env(safe-area-inset-top) + 12px)) 16px max(32px, calc(env(safe-area-inset-bottom) + 16px));
   overflow-y: auto;
   animation: fadeIn 0.2s ease;
 }
@@ -428,3 +428,61 @@ body {
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 0; }
+
+/* ── Exercise management ── */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.section-header .section-label { margin-bottom: 0; }
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+.del-ex-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: auto;
+}
+#add-exercise-row {
+  display: none;
+  gap: 8px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+.add-ex-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 15px;
+  padding: 10px 14px;
+  outline: none;
+  -webkit-appearance: none;
+}
+.add-ex-input:focus { border-color: var(--accent); }
+.btn-add-ex {
+  background: var(--accent);
+  border: none;
+  color: #000;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}

@@ -20,6 +20,32 @@ const state = {
 };
 
 // ──────────────────────────────────────────────
+//  Exercise DB (user-customizable, persisted)
+// ──────────────────────────────────────────────
+let exerciseDB;
+(function loadExerciseDB() {
+  const saved = localStorage.getItem('fitness-exercise-db');
+  if (saved) { try { exerciseDB = JSON.parse(saved); return; } catch(e) {} }
+  exerciseDB = JSON.parse(JSON.stringify(EXERCISES));
+})();
+
+function saveExerciseDB() {
+  localStorage.setItem('fitness-exercise-db', JSON.stringify(exerciseDB));
+}
+
+function deleteExercise(exId) {
+  const bp = state.bodyPart;
+  exerciseDB[bp] = exerciseDB[bp].filter(e => e.id !== exId);
+  state.selectedExIds = state.selectedExIds.filter(id => id !== exId);
+  state.workoutPlan   = state.workoutPlan.filter(w => w.id !== exId);
+  saveExerciseDB();
+  renderSetup();
+  showToast('动作已删除');
+}
+
+let exerciseEditMode = false;
+
+// ──────────────────────────────────────────────
 //  Audio
 // ──────────────────────────────────────────────
 function getAudioCtx() {
@@ -240,7 +266,7 @@ function renderHomeHistory() {
 //  SETUP VIEW
 // ──────────────────────────────────────────────
 function renderSetup() {
-  const exercises = EXERCISES[state.bodyPart] || [];
+  const exercises = exerciseDB[state.bodyPart] || [];
   const bp = BODY_PARTS.find(b => b.id === state.bodyPart);
 
   document.getElementById('setup-title').textContent = `${bp.emoji} ${bp.label}训练`;
@@ -309,6 +335,18 @@ function renderSetup() {
         </div>
       </div>`;
 
+    // Delete button (edit mode)
+    if (exerciseEditMode) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'del-ex-btn';
+      delBtn.textContent = '×';
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteExercise(ex.id);
+      });
+      item.querySelector('.exercise-item-header').appendChild(delBtn);
+    }
+
     // Toggle selection
     item.querySelector('.exercise-item-header').addEventListener('click', () => {
       toggleExercise(ex.id, ex);
@@ -327,6 +365,12 @@ function renderSetup() {
   });
 
   updateStartBtn();
+
+  // Sync edit mode UI
+  const editBtn = document.getElementById('btn-edit-exercises');
+  if (editBtn) editBtn.textContent = exerciseEditMode ? '完成' : '管理';
+  const addRow = document.getElementById('add-exercise-row');
+  if (addRow) addRow.style.display = exerciseEditMode ? 'flex' : 'none';
 }
 
 function toggleExercise(exId, exDef) {
@@ -352,7 +396,7 @@ function toggleExercise(exId, exDef) {
 
 function stepConfig(exId, field, delta) {
   let entry = state.workoutPlan.find(w => w.id === exId);
-  const exDef = Object.values(EXERCISES).flat().find(e => e.id === exId);
+  const exDef = Object.values(exerciseDB).flat().find(e => e.id === exId);
   if (!entry) {
     entry = { ...exDef, sets: exDef.defaultSets, rest: exDef.defaultRest,
               duration: exDef.defaultDuration, completedSets: 0 };
@@ -389,7 +433,7 @@ function applyTemplate(tpl) {
   }
   targets.forEach(exId => {
     let entry = state.workoutPlan.find(w => w.id === exId);
-    const exDef = Object.values(EXERCISES).flat().find(e => e.id === exId);
+    const exDef = Object.values(exerciseDB).flat().find(e => e.id === exId);
     if (!entry) {
       entry = { ...exDef, sets: tpl.sets, rest: tpl.rest, completedSets: 0 };
       state.workoutPlan.push(entry);
@@ -412,7 +456,7 @@ function buildOrderedPlan() {
   // Keep order as selected
   return state.selectedExIds.map(id => {
     const entry = state.workoutPlan.find(w => w.id === id);
-    const def = Object.values(EXERCISES).flat().find(e => e.id === id);
+    const def = Object.values(exerciseDB).flat().find(e => e.id === id);
     return {
       ...(entry || def),
       id,
@@ -686,6 +730,27 @@ function finishWorkout() {
 // ──────────────────────────────────────────────
 //  Navigation / Button Handlers
 // ──────────────────────────────────────────────
+document.getElementById('btn-edit-exercises').addEventListener('click', () => {
+  exerciseEditMode = !exerciseEditMode;
+  renderSetup();
+});
+
+document.getElementById('btn-confirm-add-ex').addEventListener('click', () => {
+  const input = document.getElementById('add-ex-input');
+  const name = input.value.trim();
+  if (!name) { showToast('请输入动作名称'); return; }
+  const id = 'custom_' + Date.now();
+  exerciseDB[state.bodyPart].push({ id, name, defaultSets: 3, defaultRest: 60, defaultDuration: 0 });
+  saveExerciseDB();
+  input.value = '';
+  renderSetup();
+  showToast(`已添加「${name}」`);
+});
+
+document.getElementById('add-ex-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('btn-confirm-add-ex').click();
+});
+
 document.getElementById('btn-start-setup').addEventListener('click', () => {
   state.workoutPlan = [];
   state.selectedExIds = [];
@@ -694,6 +759,7 @@ document.getElementById('btn-start-setup').addEventListener('click', () => {
 });
 
 document.getElementById('btn-setup-back').addEventListener('click', () => {
+  exerciseEditMode = false;
   showView('view-home');
   renderHome();
 });
@@ -764,6 +830,39 @@ document.getElementById('btn-done-again').addEventListener('click', () => {
   renderSetup();
   showView('view-setup');
 });
+
+// ──────────────────────────────────────────────
+//  Swipe-back gesture (iOS edge swipe)
+// ──────────────────────────────────────────────
+(function () {
+  let startX = 0, startY = 0;
+
+  document.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  document.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    // Must start within 40px of left edge, swipe right ≥ 60px, mostly horizontal
+    if (startX > 40 || dx < 60 || Math.abs(dy) > Math.abs(dx)) return;
+
+    const activeView = document.querySelector('.view.active')?.id;
+    if (activeView === 'view-setup') {
+      showView('view-home');
+      renderHome();
+    } else if (activeView === 'view-active') {
+      if (confirm('放弃当前训练？')) {
+        clearInterval(state.restTimer);
+        clearInterval(elapsedTick);
+        releaseWakeLock();
+        showView('view-home');
+        renderHome();
+      }
+    }
+  }, { passive: true });
+})();
 
 // ──────────────────────────────────────────────
 //  Init
