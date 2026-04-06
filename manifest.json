@@ -1,0 +1,9 @@
+{
+  "name": "健身计时",
+  "short_name": "健身",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f0f1a",
+  "theme_color": "#0f0f1a",
+  "description": "健身训练计时器，支持离线使用"
+}

@@ -17,6 +17,10 @@ const state = {
   startTime: null,
   audioCtx: null,
   voiceEnabled: true,
+  isPaused: false,
+  pauseStartTime: null,
+  totalPausedMs: 0,
+  setLogs: [],          // [{exId, exName, set, weight, reps}]
 };
 
 // ──────────────────────────────────────────────
@@ -231,10 +235,34 @@ function renderHome() {
     grid.appendChild(card);
   });
 
+  // Calendar
+  renderCalendar();
+
   // History
   renderHomeHistory();
 
   document.getElementById('btn-start-setup').disabled = !state.bodyPart;
+}
+
+function renderCalendar() {
+  const container = document.getElementById('home-calendar');
+  if (!container) return;
+  const history = getHistory();
+  const trainedDates = new Set(history.map(s => {
+    const d = new Date(s.date);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  }));
+  const today = new Date();
+  let html = '';
+  for (let i = 90; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const trained = trainedDates.has(key);
+    const isToday = i === 0;
+    html += `<div class="cal-day${trained ? ' trained' : ''}${isToday ? ' today' : ''}" title="${d.getMonth()+1}/${d.getDate()}"></div>`;
+  }
+  container.innerHTML = html;
 }
 
 function renderHomeHistory() {
@@ -493,6 +521,22 @@ function renderActive() {
   document.getElementById('active-set-info').innerHTML =
     `第 <span>${ex.completedSets + 1}</span> 组 / 共 ${ex.sets} 组`;
 
+  // Last workout hint + prefill weight
+  const lastHint = document.getElementById('last-hint');
+  const hint = getLastSetLog(ex.id, ex.completedSets + 1);
+  if (hint) {
+    const parts = [];
+    if (hint.weight) parts.push(`<span>${hint.weight}kg</span>`);
+    if (hint.reps) parts.push(`<span>${hint.reps}次</span>`);
+    lastHint.innerHTML = parts.length ? `上次: ${parts.join(' × ')}` : '';
+    const wInput = document.getElementById('log-weight');
+    const rInput = document.getElementById('log-reps');
+    if (wInput && !wInput.value && hint.weight) wInput.value = hint.weight;
+    if (rInput && !rInput.value && hint.reps)   rInput.value = hint.reps;
+  } else {
+    lastHint.innerHTML = '';
+  }
+
   // Set timer indicator
   const hasDuration = (ex.duration ?? ex.defaultDuration ?? 0) > 0;
   document.getElementById('set-timer-display').style.display = hasDuration ? 'block' : 'none';
@@ -515,7 +559,7 @@ function renderActive() {
 
 function getElapsedStr() {
   if (!state.startTime) return '00:00';
-  const sec = Math.floor((Date.now() - state.startTime) / 1000);
+  const sec = Math.floor((Date.now() - state.startTime - state.totalPausedMs) / 1000);
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
@@ -621,6 +665,7 @@ function startRest(seconds) {
       clearInterval(state.restTimer);
       state.restTimer = null;
       beepDone();
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       advanceAfterRest();
     }
   }, 1000);
@@ -677,8 +722,18 @@ function advanceAfterRest() {
 function completeSet() {
   stopSetTimer();
   beep(660, 0.1, 0.5);
+  if (navigator.vibrate) navigator.vibrate(50);
   const plan = state.orderedPlan;
   const ex = plan[state.currentExIdx];
+
+  // Capture weight/reps log
+  const wInput = document.getElementById('log-weight');
+  const rInput = document.getElementById('log-reps');
+  const weight = wInput ? (parseFloat(wInput.value) || null) : null;
+  const reps   = rInput ? (parseInt(rInput.value)   || null) : null;
+  state.setLogs.push({ exId: ex.id, exName: ex.name, set: ex.completedSets + 1, weight, reps });
+  // Keep weight for next set (same exercise), clear reps
+  if (rInput) rInput.value = '';
 
   ex.completedSets++;
 
@@ -707,7 +762,9 @@ function finishWorkout() {
   releaseWakeLock();
   beepComplete();
 
-  const duration = state.startTime ? Math.floor((Date.now() - state.startTime) / 1000) : 0;
+  const duration = state.startTime
+    ? Math.floor((Date.now() - state.startTime - state.totalPausedMs) / 1000)
+    : 0;
   const totalSets = state.orderedPlan.reduce((acc, ex) => acc + ex.completedSets, 0);
   const mins = Math.floor(duration / 60);
 
@@ -721,6 +778,7 @@ function finishWorkout() {
     duration,
     totalSets,
     exercises: state.orderedPlan.map(e => e.name),
+    setLogs: [...state.setLogs],
   });
 
   speak(`训练完成！共完成${totalSets}组，用时${mins}分钟。你太棒了，好好休息！`);
@@ -771,6 +829,9 @@ document.getElementById('btn-begin-workout').addEventListener('click', () => {
   state.orderedPlan = buildOrderedPlan();
   state.currentExIdx = 0;
   state.startTime = Date.now();
+  state.isPaused = false;
+  state.totalPausedMs = 0;
+  state.setLogs = [];
 
   requestWakeLock();
   startElapsedTick();
@@ -797,6 +858,8 @@ document.getElementById('btn-active-back').addEventListener('click', () => {
   clearInterval(state.restTimer);
   clearInterval(elapsedTick);
   releaseWakeLock();
+  state.isPaused = false;
+  document.getElementById('pause-overlay').style.display = 'none';
   showView('view-home');
   renderHome();
 });
@@ -830,6 +893,119 @@ document.getElementById('btn-done-again').addEventListener('click', () => {
   renderSetup();
   showView('view-setup');
 });
+
+// ──────────────────────────────────────────────
+//  Pause / Resume
+// ──────────────────────────────────────────────
+function togglePause() {
+  if (!state.isPaused) {
+    // Pause
+    state.isPaused = true;
+    state.pauseStartTime = Date.now();
+    clearInterval(state.setTimer);
+    clearInterval(state.restTimer);
+    clearInterval(elapsedTick);
+    document.getElementById('pause-overlay').style.display = 'flex';
+    document.getElementById('btn-pause').textContent = '▶';
+    document.getElementById('btn-pause-rest').textContent = '▶';
+  } else {
+    // Resume
+    state.isPaused = false;
+    state.totalPausedMs += Date.now() - state.pauseStartTime;
+    state.pauseStartTime = null;
+    document.getElementById('pause-overlay').style.display = 'none';
+    document.getElementById('btn-pause').textContent = '⏸';
+    document.getElementById('btn-pause-rest').textContent = '⏸';
+
+    const activeView = document.querySelector('.view.active')?.id;
+    if (activeView === 'view-active') {
+      startElapsedTick();
+      const ex = state.orderedPlan[state.currentExIdx];
+      if (ex && state.setSeconds > 0) startSetTimer(ex);
+    } else if (activeView === 'view-rest') {
+      startElapsedTick();
+      // Restart rest timer from remaining seconds
+      clearInterval(state.restTimer);
+      state.restTimer = setInterval(() => {
+        state.restSeconds--;
+        renderRest();
+        if (state.restSeconds === 5) { beepWarning(); speak('五，四，三，二，一', false); }
+        if (state.restSeconds <= 0) {
+          clearInterval(state.restTimer);
+          state.restTimer = null;
+          beepDone();
+          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+          advanceAfterRest();
+        }
+      }, 1000);
+    }
+  }
+}
+
+// ──────────────────────────────────────────────
+//  Last set log lookup
+// ──────────────────────────────────────────────
+function getLastSetLog(exId, setNum) {
+  const history = getHistory();
+  for (const session of history) {
+    if (!session.setLogs) continue;
+    const log = session.setLogs.find(l => l.exId === exId && l.set === setNum);
+    if (log) return log;
+  }
+  return null;
+}
+
+// ──────────────────────────────────────────────
+//  History full view
+// ──────────────────────────────────────────────
+function renderHistory() {
+  const container = document.getElementById('history-full-list');
+  const history = getHistory();
+  if (history.length === 0) {
+    container.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:32px">暂无训练记录</div>';
+    return;
+  }
+  container.innerHTML = history.map(s => {
+    const d = new Date(s.date);
+    const dateStr = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const partLabel = BODY_PARTS.find(b => b.id === s.bodyPart)?.label || s.bodyPart;
+    const mins = Math.floor(s.duration / 60);
+
+    let logsHtml = '';
+    if (s.setLogs && s.setLogs.length > 0) {
+      const byEx = {};
+      s.setLogs.forEach(l => { (byEx[l.exName] = byEx[l.exName] || []).push(l); });
+      logsHtml = `<div class="hist-logs">${Object.entries(byEx).map(([name, logs]) => {
+        const sets = logs.map(l => {
+          const parts = [];
+          if (l.weight) parts.push(`${l.weight}kg`);
+          if (l.reps)   parts.push(`${l.reps}次`);
+          return parts.length ? parts.join('×') : '✓';
+        }).join(' / ');
+        return `<div class="hist-ex-row"><span class="hist-ex-name">${name}</span><span class="hist-ex-sets">${sets}</span></div>`;
+      }).join('')}</div>`;
+    }
+
+    return `<div class="hist-session">
+      <div class="hist-session-header">
+        <div><div class="h-part">${partLabel}</div><div class="h-date">${dateStr}</div></div>
+        <div class="h-info"><div class="h-sets">${s.totalSets} 组</div><div>${mins} 分钟</div></div>
+      </div>${logsHtml}</div>`;
+  }).join('');
+}
+
+document.getElementById('btn-all-history').addEventListener('click', () => {
+  renderHistory();
+  showView('view-history');
+});
+
+document.getElementById('btn-history-back').addEventListener('click', () => {
+  showView('view-home');
+});
+
+document.getElementById('btn-pause').addEventListener('click', togglePause);
+document.getElementById('btn-pause-rest').addEventListener('click', togglePause);
+document.getElementById('btn-resume').addEventListener('click', togglePause);
 
 // ──────────────────────────────────────────────
 //  Swipe-back gesture (iOS edge swipe)

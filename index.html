@@ -8,6 +8,7 @@
   <meta name="theme-color" content="#0f0f1a">
   <title>健身计时</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
 </head>
 <body>
 
@@ -31,7 +32,13 @@
   <div class="section-label">选择训练部位</div>
   <div class="bodypart-grid" id="bodypart-grid"></div>
 
-  <div class="section-label">最近记录</div>
+  <div class="section-label" style="margin-bottom:8px;">打卡记录</div>
+  <div class="cal-grid" id="home-calendar"></div>
+
+  <div class="section-header" style="margin-top:24px;">
+    <div class="section-label" style="margin-bottom:0">最近记录</div>
+    <button class="btn-link" id="btn-all-history">全部</button>
+  </div>
   <div id="home-history"></div>
 
   <div class="btn-stack" style="margin-top: 24px;">
@@ -70,6 +77,7 @@
     <span class="part-badge" id="active-part-badge"></span>
     <span class="timer-small" id="active-timer-elapsed">00:00</span>
     <button id="btn-voice-toggle" title="语音开启" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 6px;">🔊</button>
+    <button id="btn-pause" class="btn-pause-icon" title="暂停">⏸</button>
     <button class="back-btn" id="btn-active-back" style="background:none;font-size:14px;width:auto;border-radius:8px;padding:4px 8px;color:var(--text-dim);">结束</button>
   </div>
 
@@ -79,9 +87,24 @@
     <div class="ex-label" id="active-ex-label"></div>
     <div class="ex-title" id="active-ex-title"></div>
     <div class="set-info" id="active-set-info"></div>
+    <div class="last-hint" id="last-hint"></div>
+
+    <div class="set-log-row">
+      <div class="log-field">
+        <span class="log-lbl">重量</span>
+        <input type="number" id="log-weight" class="log-input" placeholder="—" min="0" max="999" step="0.5" inputmode="decimal">
+        <span class="log-unit">kg</span>
+      </div>
+      <div class="log-divider"></div>
+      <div class="log-field">
+        <span class="log-lbl">次数</span>
+        <input type="number" id="log-reps" class="log-input" placeholder="—" min="1" max="99" step="1" inputmode="numeric">
+        <span class="log-unit">次</span>
+      </div>
+    </div>
 
     <!-- Set countdown ring (shown only when duration > 0) -->
-    <div id="set-timer-display" style="display:none; margin-top:16px; display:none;">
+    <div id="set-timer-display" style="display:none; margin-top:16px;">
       <div style="position:relative;width:90px;height:90px;margin:0 auto;">
         <svg width="90" height="90" viewBox="0 0 90 90" style="transform:rotate(-90deg)">
           <circle cx="45" cy="45" r="36" fill="none" stroke="var(--surface2)" stroke-width="6"/>
@@ -122,7 +145,8 @@
 
   <div class="rest-btn-row">
     <button class="btn btn-ghost" id="btn-add-30">+30s</button>
-    <button class="btn btn-primary" id="btn-skip-rest">跳过休息 →</button>
+    <button class="btn btn-ghost" id="btn-pause-rest">⏸</button>
+    <button class="btn btn-primary" id="btn-skip-rest">跳过 →</button>
   </div>
 </div>
 
@@ -155,10 +179,33 @@
   </div>
 </div>
 
+<!-- ── HISTORY ── -->
+<div id="view-history" class="view">
+  <div class="header">
+    <button class="back-btn" id="btn-history-back">←</button>
+    <h1>全部记录</h1>
+  </div>
+  <div id="history-full-list"></div>
+</div>
+
+<!-- ── Pause Overlay ── -->
+<div id="pause-overlay" class="pause-overlay" style="display:none;">
+  <div class="pause-card">
+    <div class="pause-icon">⏸</div>
+    <div class="pause-label">已暂停</div>
+    <button class="btn btn-primary" id="btn-resume" style="margin-top:24px;">▶ 继续训练</button>
+  </div>
+</div>
+
 <!-- ── Toast ── -->
 <div class="toast" id="toast"></div>
 
 <script src="data.js"></script>
 <script src="app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+</script>
 </body>
 </html>
